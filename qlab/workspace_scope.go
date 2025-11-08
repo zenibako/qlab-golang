@@ -1,0 +1,382 @@
+package qlab
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/charmbracelet/log"
+)
+
+// PerformScopeBasedComparison performs a hierarchical scope-based comparison
+// This provides more granular change detection at workspace, cue list, cue, and field levels
+func (q *Workspace) PerformScopeBasedComparison(sourceCueData, cachedCueData, currentQLabData map[string]any) (*ScopeComparison, error) {
+	workspaceScope := &ScopeComparison{
+		Scope:        ScopeWorkspace,
+		Identifier:   "workspace",
+		FieldChanges: make(map[string]*FieldConflict),
+		ChildScopes:  []*ScopeComparison{},
+	}
+
+	// Extract cues from each data source
+	sourceCues := q.indexCuesFromWorkspace(sourceCueData)
+	cachedCues := q.indexCuesFromWorkspace(cachedCueData)
+	currentCues := q.indexCuesFromWorkspace(currentQLabData)
+
+	log.Debugf("Scope comparison: source=%d cues, cache=%d cues, qlab=%d cues",
+		len(sourceCues), len(cachedCues), len(currentCues))
+
+	// Compare each cue at the cue scope level
+	allCueNumbers := q.getAllCueIdentifiers(sourceCues, cachedCues, currentCues)
+
+	hasChanges := false
+	hasConflicts := false
+
+	for _, cueNumber := range allCueNumbers {
+		sourceCue, hasSource := sourceCues[cueNumber]
+		cachedCue, hasCache := cachedCues[cueNumber]
+		currentCue, hasCurrent := currentCues[cueNumber]
+
+		cueScope := q.compareCueScope(cueNumber, sourceCue, cachedCue, currentCue, hasSource, hasCache, hasCurrent)
+
+		if cueScope.HasChanges {
+			hasChanges = true
+		}
+		if cueScope.ConflictExists {
+			hasConflicts = true
+		}
+
+		workspaceScope.ChildScopes = append(workspaceScope.ChildScopes, cueScope)
+	}
+
+	workspaceScope.HasChanges = hasChanges
+	workspaceScope.ConflictExists = hasConflicts
+
+	if hasChanges {
+		workspaceScope.ChangeType = "update"
+	} else {
+		workspaceScope.ChangeType = "none"
+	}
+
+	log.Infof("Workspace scope: hasChanges=%t, hasConflicts=%t, cues=%d",
+		hasChanges, hasConflicts, len(workspaceScope.ChildScopes))
+
+	return workspaceScope, nil
+}
+
+// compareCueScope compares a single cue across three sources at field level
+func (q *Workspace) compareCueScope(cueNumber string, sourceCue, cachedCue, currentCue map[string]any, hasSource, hasCache, hasCurrent bool) *ScopeComparison {
+	cueScope := &ScopeComparison{
+		Scope:        ScopeCue,
+		Identifier:   cueNumber,
+		FieldChanges: make(map[string]*FieldConflict),
+		ChildScopes:  []*ScopeComparison{},
+	}
+
+	// Determine change type
+	if !hasCurrent && hasSource {
+		cueScope.ChangeType = "create"
+		cueScope.HasChanges = true
+		return cueScope
+	}
+
+	if hasCurrent && !hasSource {
+		cueScope.ChangeType = "delete"
+		cueScope.HasChanges = true
+		return cueScope
+	}
+
+	if !hasSource && !hasCurrent {
+		cueScope.ChangeType = "none"
+		cueScope.HasChanges = false
+		return cueScope
+	}
+
+	// Both exist - compare fields
+	cueScope.ChangeType = "update"
+
+	// Get all field names from all sources
+	allFields := q.getAllFieldNames(sourceCue, cachedCue, currentCue)
+
+	hasChanges := false
+	hasConflicts := false
+
+	for _, fieldName := range allFields {
+		fieldConflict := q.compareField(fieldName, sourceCue, cachedCue, currentCue, hasCache)
+
+		if fieldConflict != nil {
+			cueScope.FieldChanges[fieldName] = fieldConflict
+
+			// Check if this is a genuine conflict (not just a change)
+			if q.isFieldConflict(fieldConflict) {
+				hasConflicts = true
+				hasChanges = true
+			} else if fieldConflict.SourceValue != fieldConflict.QLabValue {
+				hasChanges = true
+			}
+		}
+	}
+
+	cueScope.HasChanges = hasChanges
+	cueScope.ConflictExists = hasConflicts
+
+	if !hasChanges {
+		cueScope.ChangeType = "none"
+	}
+
+	return cueScope
+}
+
+// compareField compares a single field across three sources
+func (q *Workspace) compareField(fieldName string, sourceCue, cachedCue, currentCue map[string]any, hasCache bool) *FieldConflict {
+	sourceVal := sourceCue[fieldName]
+	cacheVal := cachedCue[fieldName]
+	currentVal := currentCue[fieldName]
+
+	// Normalize values for comparison
+	sourceNorm := q.normalizeProperty(sourceVal)
+	cacheNorm := q.normalizeProperty(cacheVal)
+	currentNorm := q.normalizeProperty(currentVal)
+
+	// Use smart comparison for specific field types
+	sourceMatchesCurrent := q.comparePropertyValues(fieldName, sourceNorm, currentNorm)
+
+	if !hasCache {
+		// No cache - simple two-way comparison
+		if sourceMatchesCurrent {
+			return nil // No conflict or change
+		}
+
+		return &FieldConflict{
+			FieldName:   fieldName,
+			SourceValue: sourceVal,
+			QLabValue:   currentVal,
+		}
+	}
+
+	// Three-way comparison with cache
+	sourceMatchesCache := q.comparePropertyValues(fieldName, sourceNorm, cacheNorm)
+	cacheMatchesCurrent := q.comparePropertyValues(fieldName, cacheNorm, currentNorm)
+
+	if sourceMatchesCache && cacheMatchesCurrent {
+		// All three match - no conflict
+		return nil
+	}
+
+	return &FieldConflict{
+		FieldName:   fieldName,
+		SourceValue: sourceVal,
+		CacheValue:  cacheVal,
+		QLabValue:   currentVal,
+	}
+}
+
+// isFieldConflict determines if a field conflict represents a genuine conflict needing resolution
+func (q *Workspace) isFieldConflict(fc *FieldConflict) bool {
+	if fc == nil {
+		return false
+	}
+
+	// Normalize for comparison
+	sourceNorm := q.normalizeProperty(fc.SourceValue)
+	cacheNorm := q.normalizeProperty(fc.CacheValue)
+	qlabNorm := q.normalizeProperty(fc.QLabValue)
+
+	// No cache - not a three-way conflict
+	if cacheNorm == "" {
+		return false
+	}
+
+	// Use smart comparison
+	sourceMatchesCache := q.comparePropertyValues(fc.FieldName, sourceNorm, cacheNorm)
+	cacheMatchesQLab := q.comparePropertyValues(fc.FieldName, cacheNorm, qlabNorm)
+
+	// Conflict exists if:
+	// - Source changed from cache AND QLab also changed from cache
+	// - AND they changed in different ways
+	if !sourceMatchesCache && !cacheMatchesQLab {
+		sourceMatchesQLab := q.comparePropertyValues(fc.FieldName, sourceNorm, qlabNorm)
+		return !sourceMatchesQLab // True conflict if they differ from each other
+	}
+
+	return false
+}
+
+// getAllCueIdentifiers returns all unique cue identifiers across all data sources
+func (q *Workspace) getAllCueIdentifiers(sourceCues, cachedCues, currentCues map[string]map[string]any) []string {
+	identifierSet := make(map[string]bool)
+
+	for id := range sourceCues {
+		identifierSet[id] = true
+	}
+	for id := range cachedCues {
+		identifierSet[id] = true
+	}
+	for id := range currentCues {
+		identifierSet[id] = true
+	}
+
+	identifiers := make([]string, 0, len(identifierSet))
+	for id := range identifierSet {
+		identifiers = append(identifiers, id)
+	}
+
+	return identifiers
+}
+
+// getAllFieldNames returns all unique field names across all cue data sources
+func (q *Workspace) getAllFieldNames(sourceCue, cachedCue, currentCue map[string]any) []string {
+	fieldSet := make(map[string]bool)
+
+	for field := range sourceCue {
+		fieldSet[field] = true
+	}
+	for field := range cachedCue {
+		fieldSet[field] = true
+	}
+	for field := range currentCue {
+		fieldSet[field] = true
+	}
+
+	fields := make([]string, 0, len(fieldSet))
+	for field := range fieldSet {
+		fields = append(fields, field)
+	}
+
+	return fields
+}
+
+// GenerateMergedScope creates a merged result after conflict resolution
+func (q *Workspace) GenerateMergedScope(scopeComparison *ScopeComparison, comparison *ThreeWayComparison) (*MergedScope, error) {
+	if scopeComparison == nil {
+		return nil, fmt.Errorf("scope comparison is nil")
+	}
+
+	merged := &MergedScope{
+		Scope:        scopeComparison.Scope,
+		Identifier:   scopeComparison.Identifier,
+		MergedData:   make(map[string]any),
+		ChildScopes:  []*MergedScope{},
+		SourceFields: make(map[string]string),
+		AppliedAt:    time.Now().Format(time.RFC3339),
+	}
+
+	log.Debugf("Generating merged scope for %s: %s", scopeComparison.Scope, scopeComparison.Identifier)
+
+	// Process field-level merges
+	for fieldName, fieldConflict := range scopeComparison.FieldChanges {
+		if fieldConflict == nil {
+			continue
+		}
+
+		var chosenValue any
+		var chosenSource string
+
+		// Check if user made a field-level choice
+		if comparison.QLabChosenFields != nil {
+			if cueFields, exists := comparison.QLabChosenFields[scopeComparison.Identifier]; exists {
+				if cueFields[fieldName] {
+					chosenValue = fieldConflict.QLabValue
+					chosenSource = "qlab"
+				}
+			}
+		}
+
+		// Check if user chose entire cue from QLab
+		if chosenSource == "" && comparison.QLabChosenCues != nil {
+			if comparison.QLabChosenCues[scopeComparison.Identifier] {
+				chosenValue = fieldConflict.QLabValue
+				chosenSource = "qlab"
+			}
+		}
+
+		// Default: use source value if no explicit choice
+		if chosenSource == "" {
+			if fieldConflict.SourceValue != nil {
+				chosenValue = fieldConflict.SourceValue
+				chosenSource = "source"
+			} else if fieldConflict.QLabValue != nil {
+				chosenValue = fieldConflict.QLabValue
+				chosenSource = "qlab"
+			} else if fieldConflict.CacheValue != nil {
+				chosenValue = fieldConflict.CacheValue
+				chosenSource = "cache"
+			}
+		}
+
+		if chosenValue != nil {
+			merged.MergedData[fieldName] = chosenValue
+			merged.SourceFields[fieldName] = chosenSource
+		}
+
+		// Update the field conflict with chosen value
+		fieldConflict.ChosenValue = chosenValue
+		fieldConflict.ChosenSource = chosenSource
+	}
+
+	// Recursively process child scopes
+	for _, childScope := range scopeComparison.ChildScopes {
+		childMerged, err := q.GenerateMergedScope(childScope, comparison)
+		if err != nil {
+			log.Warnf("Failed to merge child scope %s: %v", childScope.Identifier, err)
+			continue
+		}
+		merged.ChildScopes = append(merged.ChildScopes, childMerged)
+	}
+
+	log.Debugf("Merged scope %s: %d fields, %d children",
+		merged.Identifier, len(merged.MergedData), len(merged.ChildScopes))
+
+	return merged, nil
+}
+
+// ExtractMergedWorkspaceData extracts the final merged workspace data structure
+// This can be written back to a CUE file or transmitted to QLab
+func (q *Workspace) ExtractMergedWorkspaceData(mergedScope *MergedScope) (map[string]any, error) {
+	if mergedScope == nil {
+		return nil, fmt.Errorf("merged scope is nil")
+	}
+
+	if mergedScope.Scope != ScopeWorkspace {
+		return nil, fmt.Errorf("expected workspace scope, got %s", mergedScope.Scope)
+	}
+
+	workspaceData := make(map[string]any)
+	cues := make([]any, 0, len(mergedScope.ChildScopes))
+
+	// Build cues array from child scopes
+	for _, childScope := range mergedScope.ChildScopes {
+		if childScope.Scope == ScopeCue {
+			cueData := make(map[string]any)
+
+			// Copy merged data
+			for field, value := range childScope.MergedData {
+				cueData[field] = value
+			}
+
+			// Recursively add sub-cues if present
+			if len(childScope.ChildScopes) > 0 {
+				subCues := make([]any, 0, len(childScope.ChildScopes))
+				for _, subScope := range childScope.ChildScopes {
+					if subScope.Scope == ScopeCue {
+						subCueData := make(map[string]any)
+						for field, value := range subScope.MergedData {
+							subCueData[field] = value
+						}
+						subCues = append(subCues, subCueData)
+					}
+				}
+				if len(subCues) > 0 {
+					cueData["cues"] = subCues
+				}
+			}
+
+			cues = append(cues, cueData)
+		}
+	}
+
+	workspaceData["cues"] = cues
+
+	log.Infof("Extracted merged workspace with %d top-level cues", len(cues))
+
+	return workspaceData, nil
+}
