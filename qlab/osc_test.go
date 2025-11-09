@@ -1188,7 +1188,8 @@ func isQLabAvailable(host string, port int) bool {
 	ch := make(chan result, 1)
 
 	go func() {
-		reply, err := workspace.Init("1297")
+		// Try with empty passcode (tests should use workspaces without passcodes)
+		reply, err := workspace.Init("")
 		ch <- result{reply: reply, err: err}
 	}()
 
@@ -1227,15 +1228,14 @@ func TestRealQLab(t *testing.T) {
 	// Connect to real QLab instance
 	workspace := NewWorkspace(host, port)
 
-	// Initialize connection with test passcode
+	// Initialize connection with empty passcode (tests should use workspaces without passcodes)
 	t.Log("--- Connecting to QLab ---")
-	reply, err := workspace.Init("1297")
+	reply, err := workspace.Init("")
 	if err != nil {
 		t.Fatalf("Failed to initialize connection to QLab: %v", err)
 	}
 
 	t.Logf("Successfully connected to QLab. Reply: %v", reply)
-	t.Logf("Connected to workspace ID: %s", workspace.workspace_id)
 
 	// Clear all existing cues to avoid conflicts (ignore errors - some cues may be protected)
 	t.Log("--- Clearing existing cues ---")
@@ -1317,6 +1317,175 @@ func TestRealQLab(t *testing.T) {
 	}
 
 	t.Log("Real QLab test completed")
+}
+
+// TestEmptyPasscodeConnection tests connecting to QLab with an empty passcode
+func TestEmptyPasscodeConnection(t *testing.T) {
+	log.SetLevel(log.InfoLevel)
+
+	t.Log("=== Testing connection with empty passcode ===")
+
+	// Get an available port from the OS
+	port, err := getFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
+
+	// Create and start mock QLab OSC server
+	mockServer := NewMockOSCServer("localhost", port)
+	if err = mockServer.Start(); err != nil {
+		t.Fatalf("Failed to start mock server: %v", err)
+	}
+
+	// Clean up after test
+	t.Cleanup(func() {
+		mockServer.Clear()
+		if err := mockServer.Stop(); err != nil {
+			t.Logf("Failed to stop mock server: %v", err)
+		}
+		time.Sleep(150 * time.Millisecond)
+	})
+
+	// Create workspace (not initialized yet)
+	workspace := NewWorkspace("localhost", port)
+
+	// Clean up workspace
+	t.Cleanup(func() {
+		workspace.Close()
+	})
+
+	// Test 1: Initialize with empty string passcode
+	t.Log("--- Test 1: Connecting with empty string passcode ---")
+	reply, err := workspace.Init("")
+	if err != nil {
+		t.Fatalf("Failed to initialize connection with empty passcode: %v", err)
+	}
+
+	t.Logf("Successfully connected with empty passcode. Reply: %v", reply)
+	t.Logf("Connected to workspace ID: %s", workspace.workspace_id)
+
+	// Verify workspace is initialized
+	if !workspace.initialized {
+		t.Error("Workspace should be initialized after Init()")
+	}
+
+	if workspace.workspace_id == "" {
+		t.Error("workspace_id should be set after initialization")
+	}
+
+	// Verify inbox was created
+	if workspace.inboxID == "" {
+		t.Error("Expected inboxID to be set during workspace initialization")
+	}
+
+	// Test creating a cue to verify workspace is fully functional
+	t.Log("--- Testing cue creation after empty passcode connection ---")
+	cueData := map[string]any{
+		"type": "memo",
+		"name": "Test cue with empty passcode",
+	}
+
+	cueID, err := workspace.createCue(cueData, "")
+	if err != nil {
+		t.Errorf("Failed to create cue after empty passcode initialization: %v", err)
+	} else {
+		t.Logf("Successfully created cue with ID: %s", cueID)
+	}
+
+	t.Log("Empty passcode connection test completed successfully")
+}
+
+// TestPasscodeVariations tests various passcode scenarios
+// Note: QLab passcodes must be four-digit integers (0000-9999), or empty for no passcode
+func TestPasscodeVariations(t *testing.T) {
+	log.SetLevel(log.InfoLevel)
+
+	t.Log("=== Testing various passcode scenarios ===")
+
+	testCases := []struct {
+		name     string
+		passcode string
+		shouldOK bool
+	}{
+		{
+			name:     "Empty string passcode (no passcode)",
+			passcode: "",
+			shouldOK: true,
+		},
+		{
+			name:     "Four-digit passcode (0000)",
+			passcode: "0000",
+			shouldOK: true,
+		},
+		{
+			name:     "Four-digit passcode (1234)",
+			passcode: "1234",
+			shouldOK: true,
+		},
+		{
+			name:     "Four-digit passcode (9999)",
+			passcode: "9999",
+			shouldOK: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Get an available port from the OS
+			port, err := getFreePort()
+			if err != nil {
+				t.Fatalf("Failed to get free port: %v", err)
+			}
+
+			// Create and start mock QLab OSC server
+			mockServer := NewMockOSCServer("localhost", port)
+			if err = mockServer.Start(); err != nil {
+				t.Fatalf("Failed to start mock server: %v", err)
+			}
+
+			// Clean up after test
+			t.Cleanup(func() {
+				mockServer.Clear()
+				if err := mockServer.Stop(); err != nil {
+					t.Logf("Failed to stop mock server: %v", err)
+				}
+				time.Sleep(150 * time.Millisecond)
+			})
+
+			// Create workspace
+			workspace := NewWorkspace("localhost", port)
+			t.Cleanup(func() {
+				workspace.Close()
+			})
+
+			// Test connection with this passcode
+			t.Logf("Testing passcode: %q (length: %d)", tc.passcode, len(tc.passcode))
+			reply, err := workspace.Init(tc.passcode)
+
+			if tc.shouldOK {
+				if err != nil {
+					t.Errorf("Expected successful connection with passcode %q, got error: %v", tc.passcode, err)
+				} else {
+					t.Logf("Successfully connected with passcode %q", tc.passcode)
+
+					// Verify workspace is initialized
+					if !workspace.initialized {
+						t.Error("Workspace should be initialized")
+					}
+					if workspace.workspace_id == "" {
+						t.Error("workspace_id should be set")
+					}
+
+					// Verify reply is valid
+					if len(reply) == 0 {
+						t.Error("Expected non-empty reply")
+					}
+				}
+			}
+		})
+	}
+
+	t.Log("All passcode variation tests completed successfully")
 }
 
 // TestDecimalCueNumberOSCStringVerification tests that decimal cue numbers like "1.0" are sent as strings in OSC messages

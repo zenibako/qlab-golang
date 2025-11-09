@@ -35,7 +35,11 @@ func main() {
     workspace := qlab.NewWorkspace("localhost", 53000)
     
     // Initialize connection with passcode
-    _, err := workspace.Init("your-passcode")
+    // Passcode must be either:
+    //   - Empty string "" for workspaces without a passcode
+    //   - A four-digit string (e.g., "0000", "1234", "9999")
+    // QLab only accepts four-digit integer passcodes (0000-9999)
+    _, err := workspace.Init("1234")  // or "" for no passcode
     if err != nil {
         log.Fatal(err)
     }

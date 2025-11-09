@@ -188,6 +188,12 @@ func (q *Workspace) mockDryRunResponse(address string, input string) []any {
 	return []any{`{"status": "ok", "dry_run": true}`}
 }
 
+// Init initializes the workspace connection to QLab
+// passcode must be either:
+//   - Empty string "" for workspaces without a passcode
+//   - A four-digit string (e.g., "0000", "1234", "9999") for workspaces with a passcode
+//
+// QLab only accepts four-digit integer passcodes (0000-9999)
 func (q *Workspace) Init(passcode string) ([]any, error) {
 	log.Debugf("Init called with passcode: %q (length: %d)", passcode, len(passcode))
 	connectAddr := q.addressBuilder.BuildAddress(messages.MsgConnect, nil)

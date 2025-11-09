@@ -18,7 +18,7 @@ import "github.com/zenibako/cuejitsu/lib/cj"
 
 workspace: cj.#Workspace & {
 	name: "Test Workspace" 
-	passcode: 1297
+	passcode: ""
 	cues: [
 		cj.#CueList & {
 			name: "Preshow"

@@ -333,7 +333,7 @@ func (q *Workspace) createCue(cueData map[string]any, cueNumber string) (string,
 		// Check if data contains "badpass" indicating connection issues
 		if data, hasData := newCueData["data"]; hasData {
 			if dataStr, isStr := data.(string); isStr && dataStr == "badpass" {
-				return "", fmt.Errorf("QLab authentication failed - check passcode (should be 1297) and ensure workspace is connected")
+				return "", fmt.Errorf("QLab authentication failed - check passcode and ensure workspace is connected")
 			}
 		}
 		return "", formatErrorWithJSON("no uniqueID in new cue reply", replyStr)
@@ -472,7 +472,7 @@ func (q *Workspace) createCueWithoutTarget(cueData map[string]any, cueNumber str
 		// Check if data contains "badpass" indicating connection issues
 		if data, hasData := newCueData["data"]; hasData {
 			if dataStr, isStr := data.(string); isStr && dataStr == "badpass" {
-				return "", fmt.Errorf("QLab authentication failed - check passcode (should be 1297) and ensure workspace is connected")
+				return "", fmt.Errorf("QLab authentication failed - check passcode and ensure workspace is connected")
 			}
 		}
 		return "", formatErrorWithJSON("no uniqueID in new cue reply", replyStr)

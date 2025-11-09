@@ -19,7 +19,7 @@ import "github.com/zenibako/cuejitsu/lib/cj"
 
 workspace: cj.#Workspace & {
 	name:     "Test"
-	passcode: 1297
+	passcode: ""
 	cues: [
 		cj.#Timeline & {
 			number: "0"
