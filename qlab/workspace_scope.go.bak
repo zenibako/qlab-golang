@@ -2,7 +2,6 @@ package qlab
 
 import (
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -111,7 +110,7 @@ func (q *Workspace) compareCueScope(cueNumber string, sourceCue, cachedCue, curr
 			if q.isFieldConflict(fieldConflict) {
 				hasConflicts = true
 				hasChanges = true
-			} else if !reflect.DeepEqual(fieldConflict.SourceValue, fieldConflict.QLabValue) {
+			} else if !valuesEqual(fieldConflict.SourceValue, fieldConflict.QLabValue) {
 				hasChanges = true
 			}
 		}
