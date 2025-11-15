@@ -22,29 +22,30 @@ type Workspace struct {
 	client            *osc.Client
 	workspace_id      string
 	addressBuilder    *messages.OSCAddressBuilder
-	cueNumbers        map[string]string     // Maps cue number -> cue ID for conflict detection
-	cueListNames      map[string]string     // Maps cue list name -> cue list ID for duplicate prevention
-	inboxID           string                // ID of the "Cuejitsu Inbox" cue list for staging
-	forceCueNumbers   bool                  // Whether to force cue number conflicts by clearing existing numbers
-	dryRun            bool                  // Whether to run in dry-run mode (no actual changes)
-	dryRunCounter     int                   // Counter for generating unique mock IDs in dry-run mode
-	replyServer       *osc.Server           // Current reply server for cleanup
-	updateServer      *osc.Server           // Persistent server for QLab updates
-	replyHandlers     map[string]chan []any // Handlers for reply messages
-	replyHandlersMux  sync.Mutex            // Mutex to protect replyHandlers map
-	updateHandler     func(string, []any)   // Handler for update messages
-	requestCounter    int                   // Counter for generating unique request IDs
-	cueListsCache     []any                 // Cached cue lists data to avoid duplicate requests
-	videoStagesCache  []map[string]any      // Cached video stages to avoid duplicate queries
-	onDisconnect      func()                // Callback for when QLab appears to be disconnected
-	wasConnected      bool                  // Tracks if we were previously connected
-	consecutiveErrors int                   // Counter for consecutive timeout errors
-	serverMux         sync.Mutex            // Mutex to protect server access
-	updateServerReady chan struct{}         // Signal that update server is ready
-	replyServerReady  chan struct{}         // Signal that reply server is ready
-	maxRetries        int                   // Maximum number of retries for OSC commands (default 0)
-	timeout           int                   // Timeout in seconds for OSC replies (default 10)
-	cueFileDirectory  string                // Directory of the CUE file being processed (for resolving relative paths)
+	cueNumbers        map[string]string          // Maps cue number -> cue ID for conflict detection
+	cueListNames      map[string]string          // Maps cue list name -> cue list ID for duplicate prevention
+	inboxID           string                     // ID of the "Cuejitsu Inbox" cue list for staging
+	forceCueNumbers   bool                       // Whether to force cue number conflicts by clearing existing numbers
+	dryRun            bool                       // Whether to run in dry-run mode (no actual changes)
+	dryRunCounter     int                        // Counter for generating unique mock IDs in dry-run mode
+	replyServer       *osc.Server                // Current reply server for cleanup
+	updateServer      *osc.Server                // Persistent server for QLab updates
+	replyHandlers     map[string]chan []any      // Handlers for reply messages
+	replyHandlersMux  sync.Mutex                 // Mutex to protect replyHandlers map
+	updateHandler     func(string, []any)        // Handler for update messages
+	requestCounter    int                        // Counter for generating unique request IDs
+	cueListsCache     []any                      // Cached cue lists data to avoid duplicate requests
+	videoStagesCache  []map[string]any           // Cached video stages to avoid duplicate queries
+	onDisconnect      func()                     // Callback for when QLab appears to be disconnected
+	wasConnected      bool                       // Tracks if we were previously connected
+	consecutiveErrors int                        // Counter for consecutive timeout errors
+	serverMux         sync.Mutex                 // Mutex to protect server access
+	updateServerReady chan struct{}              // Signal that update server is ready
+	replyServerReady  chan struct{}              // Signal that reply server is ready
+	maxRetries        int                        // Maximum number of retries for OSC commands (default 0)
+	timeout           int                        // Timeout in seconds for OSC replies (default 10)
+	cueFileDirectory  string                     // Directory of the CUE file being processed (for resolving relative paths)
+	progressCallback  func(step, message string) // Callback for progress updates during operations
 }
 
 func NewWorkspace(host string, port int) Workspace {
@@ -114,6 +115,12 @@ func (q *Workspace) SetTimeout(seconds int) {
 	if seconds > 10 {
 		log.Infof("OSC timeout increased to %d seconds for large workspace support", seconds)
 	}
+}
+
+// SetProgressCallback sets a callback function for progress updates during operations
+// The callback receives a step identifier and a human-readable message
+func (q *Workspace) SetProgressCallback(callback func(step, message string)) {
+	q.progressCallback = callback
 }
 
 // SetCueFileHandler has been removed - file handling is now the caller's responsibility.
@@ -376,6 +383,11 @@ func (q *Workspace) TransmitWorkspaceData(filePath string, workspaceData map[str
 	q.cueFileDirectory = filepath.Dir(absFilePath)
 	log.Debug("Set cue file directory", "directory", q.cueFileDirectory)
 
+	// Report progress: comparing changes
+	if q.progressCallback != nil {
+		q.progressCallback("compare", "Comparing with QLab workspace...")
+	}
+
 	// Perform three-way comparison to detect changes
 	log.Debug("Starting three-way comparison", "file", filePath)
 	comparison, err := q.PerformThreeWayComparison(filePath, workspaceData)
@@ -441,11 +453,31 @@ func (q *Workspace) TransmitWorkspaceData(filePath string, workspaceData map[str
 		}
 	}
 
+	// Report progress: applying changes
+	if q.progressCallback != nil {
+		changedCount := 0
+		for _, result := range comparison.CueResults {
+			if result.HasChanged {
+				changedCount++
+			}
+		}
+		if changedCount > 0 {
+			q.progressCallback("apply", fmt.Sprintf("Applying %d cue changes...", changedCount))
+		} else {
+			q.progressCallback("apply", "No changes to apply")
+		}
+	}
+
 	// Process the workspace data with change detection
 	log.Debug("Transmitting with change detection")
 	err = q.transmitCueFileWithChangeDetection(workspaceData, comparison)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transmit cue file with change detection: %v", err)
+	}
+
+	// Report progress: saving cache
+	if q.progressCallback != nil {
+		q.progressCallback("finalize", "Finalizing...")
 	}
 
 	// Save cache after successful transmission
@@ -466,9 +498,19 @@ func (q *Workspace) TransmitWorkspaceData(filePath string, workspaceData map[str
 // ReceiveWorkspaceData queries the current QLab workspace state and returns the cues data.
 // The caller is responsible for writing this data to a file if needed.
 func (q *Workspace) ReceiveWorkspaceData() ([]any, error) {
+	// Report progress: querying QLab
+	if q.progressCallback != nil {
+		q.progressCallback("query", "Querying QLab workspace...")
+	}
+
 	currentWorkspace, err := q.queryCurrentWorkspaceState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to query current workspace state: %v", err)
+	}
+
+	// Report progress: extracting cues
+	if q.progressCallback != nil {
+		q.progressCallback("extract", "Extracting cue data...")
 	}
 
 	cuesData := q.extractCuesFromWorkspace(currentWorkspace)
