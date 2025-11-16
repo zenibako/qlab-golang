@@ -49,6 +49,12 @@ type Cue struct {
 	RotationType int       `json:"rotationType,omitempty"` // 0=3D orientation, 1=X, 2=Y, 3=Z
 	Quaternion   []float64 `json:"quaternion,omitempty"`   // [a, b, c, d] for 3D rotation
 	Opacity      float64   `json:"opacity,omitempty"`      // 0.0 to 1.0
+
+	// Fade cue geometry parameter enables (checkboxes)
+	DoOpacity     bool `json:"doOpacity,omitempty"`     // Enable opacity fading
+	DoTranslation bool `json:"doTranslation,omitempty"` // Enable translation fading
+	DoScale       bool `json:"doScale,omitempty"`       // Enable scale fading
+	DoRotation    bool `json:"doRotation,omitempty"`    // Enable rotation fading
 }
 
 // WorkspaceData represents the parsed workspace structure

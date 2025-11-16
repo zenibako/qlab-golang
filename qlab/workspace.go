@@ -46,6 +46,8 @@ type Workspace struct {
 	timeout           int                        // Timeout in seconds for OSC replies (default 10)
 	cueFileDirectory  string                     // Directory of the CUE file being processed (for resolving relative paths)
 	progressCallback  func(step, message string) // Callback for progress updates during operations
+	createdCueIDs     []string                   // Track IDs of cues created during current operation for rollback
+	createdCueIDsMux  sync.Mutex                 // Mutex to protect createdCueIDs slice
 }
 
 func NewWorkspace(host string, port int) Workspace {
@@ -1095,6 +1097,142 @@ func (q *Workspace) getVideoStages() ([]map[string]any, error) {
 	return stages, nil
 }
 
+// ValidateCueConfiguration checks if a cue has warnings and returns descriptive messages
+func (q *Workspace) ValidateCueConfiguration(cueID string, cueNumber string) []string {
+	var warnings []string
+
+	// Check if the cue has a warning using the /isWarning OSC method
+	address := fmt.Sprintf("/workspace/%s/cue/%s/isWarning", q.workspace_id, cueNumber)
+	reply := q.Send(address, "")
+
+	if len(reply) > 0 {
+		// Parse the reply to check if it's true
+		if warningFlag, ok := reply[0].(bool); ok && warningFlag {
+			// Cue has a warning, try to get more details
+			warnings = append(warnings, fmt.Sprintf("cue %s has configuration warnings", cueNumber))
+
+			// Try to get more specific information about the warning
+			// For fade cues, check common issues
+			details := q.getCueWarningDetails(cueID, cueNumber)
+			warnings = append(warnings, details...)
+		}
+	}
+
+	return warnings
+}
+
+// getCueWarningDetails gets more specific information about cue warnings
+func (q *Workspace) getCueWarningDetails(cueID string, cueNumber string) []string {
+	var details []string
+
+	// Get basic cue information
+	address := fmt.Sprintf("/workspace/%s/cue/%s/valuesForKeys", q.workspace_id, cueNumber)
+	reply := q.Send(address, `["type"]`)
+
+	if len(reply) > 0 {
+		// Try to parse the response to get cue type
+		if dataStr, ok := reply[0].(string); ok {
+			var cueInfo map[string]any
+			if err := json.Unmarshal([]byte(dataStr), &cueInfo); err == nil {
+				if cueType, ok := cueInfo["type"].(string); ok && cueType == "Fade" {
+					// Check for common fade cue issues
+					fadeWarnings := q.checkFadeCueWarnings(cueNumber)
+					details = append(details, fadeWarnings...)
+				}
+			}
+		}
+	}
+
+	return details
+}
+
+// checkFadeCueWarnings checks for common fade cue configuration issues
+func (q *Workspace) checkFadeCueWarnings(cueNumber string) []string {
+	var warnings []string
+
+	// Check fade parameters by querying common fade targets
+	fadeParams := []string{"opacity", "position", "scale", "rotation"}
+	hasTargets := false
+
+	for _, param := range fadeParams {
+		address := fmt.Sprintf("/workspace/%s/cue/%s/%sTargets", q.workspace_id, cueNumber, param)
+		reply := q.Send(address, "")
+
+		if len(reply) > 0 {
+			// Try to parse the targets response
+			if targetsStr, ok := reply[0].(string); ok {
+				var targets map[string]any
+				if err := json.Unmarshal([]byte(targetsStr), &targets); err == nil && len(targets) > 0 {
+					hasTargets = true
+					break
+				}
+			} else if targetsMap, ok := reply[0].(map[string]any); ok && len(targetsMap) > 0 {
+				hasTargets = true
+				break
+			}
+		}
+	}
+
+	if !hasTargets {
+		warnings = append(warnings, fmt.Sprintf("cue %s: no parameters set to fade", cueNumber))
+	}
+
+	return warnings
+}
+
+// ValidateAllCues checks all cues in the workspace for warnings and returns all issues found
+func (q *Workspace) ValidateAllCues() ([]string, error) {
+	var allWarnings []string
+
+	// Get all cues in the workspace
+	address := fmt.Sprintf("/workspace/%s/cueLists", q.workspace_id)
+	reply := q.Send(address, "")
+
+	if len(reply) == 0 {
+		return nil, fmt.Errorf("no reply received from QLab when querying cue lists")
+	}
+
+	replyStr, ok := reply[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid reply format when querying cue lists")
+	}
+
+	var replyData map[string]any
+	if err := json.Unmarshal([]byte(replyStr), &replyData); err != nil {
+		return nil, fmt.Errorf("failed to parse cue lists reply: %v", err)
+	}
+
+	if status, ok := replyData["status"].(string); ok && status == "error" {
+		return nil, fmt.Errorf("QLab returned error getting cue lists: %v", replyData["error"])
+	}
+
+	data, ok := replyData["data"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("no cue lists data in reply")
+	}
+
+	// Iterate through all cue lists and validate each cue
+	for _, cueListAny := range data {
+		if cueList, ok := cueListAny.(map[string]any); ok {
+			if cuesAny, ok := cueList["cues"].([]any); ok {
+				for _, cueAny := range cuesAny {
+					if cue, ok := cueAny.(map[string]any); ok {
+						if cueNumber, ok := cue["number"].(string); ok {
+							if cueID, ok := cue["uniqueID"].(string); ok {
+								// Validate this cue
+								warnings := q.ValidateCueConfiguration(cueID, cueNumber)
+								allWarnings = append(allWarnings, warnings...)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return allWarnings, nil
+}
+
 // Close cleans up resources used by the workspace
 func (q *Workspace) Close() {
 	q.serverMux.Lock()
@@ -1142,4 +1280,92 @@ func (q *Workspace) Close() {
 	q.replyHandlersMux.Lock()
 	q.replyHandlers = make(map[string]chan []any)
 	q.replyHandlersMux.Unlock()
+}
+
+// trackCreatedCue adds a cue ID to the tracking list for potential rollback
+func (q *Workspace) trackCreatedCue(cueID string) {
+	q.createdCueIDsMux.Lock()
+	defer q.createdCueIDsMux.Unlock()
+
+	q.createdCueIDs = append(q.createdCueIDs, cueID)
+	log.Debugf("Tracked created cue: %s (total tracked: %d)", cueID, len(q.createdCueIDs))
+}
+
+// ClearTrackedCues clears the list of tracked cue IDs
+func (q *Workspace) ClearTrackedCues() {
+	q.createdCueIDsMux.Lock()
+	defer q.createdCueIDsMux.Unlock()
+
+	q.createdCueIDs = make([]string, 0)
+	log.Debug("Cleared tracked cues list")
+}
+
+// getTrackedCues returns a copy of the tracked cue IDs
+func (q *Workspace) getTrackedCues() []string {
+	q.createdCueIDsMux.Lock()
+	defer q.createdCueIDsMux.Unlock()
+
+	// Return a copy to avoid concurrency issues
+	cues := make([]string, len(q.createdCueIDs))
+	copy(cues, q.createdCueIDs)
+	return cues
+}
+
+// DeleteCue deletes a cue from QLab by its unique ID
+func (q *Workspace) DeleteCue(cueID string) error {
+	if q.workspace_id == "" {
+		return fmt.Errorf("workspace ID is required for cue deletion")
+	}
+
+	address := fmt.Sprintf("/workspace/%s/delete_id/%s", q.workspace_id, cueID)
+	log.Debugf("Deleting cue: %s", cueID)
+
+	reply := q.Send(address, "")
+	if len(reply) == 0 {
+		return fmt.Errorf("no reply received when deleting cue %s", cueID)
+	}
+
+	// Check reply for errors
+	replyStr, ok := reply[0].(string)
+	if !ok {
+		return fmt.Errorf("invalid reply format when deleting cue %s", cueID)
+	}
+
+	var replyData map[string]any
+	if err := json.Unmarshal([]byte(replyStr), &replyData); err != nil {
+		return fmt.Errorf("failed to parse delete reply for cue %s: %v", cueID, err)
+	}
+
+	if status, ok := replyData["status"].(string); ok && status == "error" {
+		return fmt.Errorf("QLab returned error deleting cue %s: %v", cueID, replyData["error"])
+	}
+
+	log.Infof("Deleted cue: %s", cueID)
+	return nil
+}
+
+// RollbackCreatedCues deletes all cues that were tracked during the current operation
+func (q *Workspace) RollbackCreatedCues() error {
+	cues := q.getTrackedCues()
+	if len(cues) == 0 {
+		log.Debug("No cues to rollback")
+		return nil
+	}
+
+	log.Infof("Rolling back %d created cues", len(cues))
+
+	// Delete cues in reverse order (children first, then parents)
+	for i := len(cues) - 1; i >= 0; i-- {
+		cueID := cues[i]
+		if err := q.DeleteCue(cueID); err != nil {
+			log.Warnf("Failed to delete cue during rollback: %s, error: %v", cueID, err)
+			// Continue with other deletions
+		}
+	}
+
+	// Clear the tracking list
+	q.ClearTrackedCues()
+
+	log.Info("Rollback completed")
+	return nil
 }

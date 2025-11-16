@@ -341,6 +341,9 @@ func (q *Workspace) createCue(cueData map[string]any, cueNumber string) (string,
 
 	log.Infof("Created cue with ID: %s", uniqueID)
 
+	// Track this cue for potential rollback
+	q.trackCreatedCue(uniqueID)
+
 	// Set cue properties
 	if cueName != "" {
 		if err := q.setCueProperty(uniqueID, "name", cueName); err != nil {
@@ -479,6 +482,9 @@ func (q *Workspace) createCueWithoutTarget(cueData map[string]any, cueNumber str
 	}
 
 	log.Infof("Created cue with ID: %s", uniqueID)
+
+	// Track this cue for potential rollback
+	q.trackCreatedCue(uniqueID)
 
 	// Set cue properties
 	if cueName != "" {
