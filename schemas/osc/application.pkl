@@ -1,0 +1,134 @@
+module qlab.osc.application
+
+import "osc.pkl"
+
+class ApplicationMessage extends osc.Message {
+  useWorkspacePrefix = false
+}
+
+`/alwaysReply {number}`: ApplicationMessage = new {
+  address = "/alwaysReply"
+  args = new {
+    0 // number
+  }
+  permissions = new {
+    view    = "read_write"
+    edit    = "read_write"
+    control = "read_write"
+    query   = "yes"
+  }
+}
+
+`/disconnect`: ApplicationMessage = new {
+  address = "/disconnect"
+  permissions = new {
+    view    = "no"
+    edit    = "yes"
+    control = "no"
+    query   = "no"
+  }
+}
+
+`/fontNames`: ApplicationMessage = new {
+  address = "/fontNames"
+  permissions = new {
+    view    = "read_only"
+    edit    = "read_only"
+    control = "read_only"
+    query   = "no"
+  }
+  example = """
+    [
+      "AppleColorEmoji",
+      "AppleSDGothicNeo-Bold",
+      "AppleSDGothicNeo-ExtraBold",
+      "AppleSDGothicNeo-Heavy",
+      "AppleSDGothicNeo-Light",
+      ...
+    ]
+  """
+}
+
+`/fontFamiliesAndStyles`: ApplicationMessage = new {
+  address = "/fontFamiliesAndStyles"
+  permissions = new {
+    view    = "read_only"
+    edit    = "read_only"
+    control = "read_only"
+    query   = "no"
+  }
+  example = """
+    {
+      "Apple Color Emoji" :
+        [
+          "Regular"
+        ],
+      "Apple SD Gothic Neo" :
+        [
+          "Regular",
+          "Medium",
+          "Light",
+          "UltraLight",
+          "Thin",
+          "SemiBold",
+          "Bold",
+          "ExtraBold",
+          "Heavy"
+        ],
+      ...
+    }
+  """
+}
+
+`/forgetMeNot {boolean}`: ApplicationMessage = new {
+  address = "/forgetMeNot"
+  args = new {
+    true // boolean
+  }
+  permissions = new {
+    view    = "read_write"
+    edit    = "read_write"
+    control = "read_write"
+    query   = "no"
+  }
+}
+
+`/udpKeepAlive {boolean}`: ApplicationMessage = (`/forgetMeNot {boolean}`) {
+  address = "/udpKeepAlive"
+}
+
+`/overrides/dmxOutputEnabled {boolean}`: ApplicationMessage = new {
+  address = "/overrides/dmxOutputEnabled"
+  args = new {
+    true // boolean
+  }
+  permissions = new {
+    view    = "read"
+    edit    = "read_write"
+    control = "read_write"
+    query   = "yes"
+  }
+}
+
+`/overrides/toggleDmxOutput`: ApplicationMessage = new {
+  address = "/overrides/toggleDmxOutput"
+  permissions = new {
+    view    = "no"
+    edit    = "yes"
+    control = "yes"
+    query   = "no"
+  }
+}
+
+`/overrides/midiInputEnabled {boolean}`: ApplicationMessage = new {
+  address = "/overrides/midiInputEnabled {boolean}"
+  args = new {
+    true // boolean
+  }
+  permissions = new {
+    view    = "read"
+    edit    = "read_write"
+    control = "read_write"
+    query   = "yes"
+  }
+}

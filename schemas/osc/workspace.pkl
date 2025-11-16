@@ -1,0 +1,87 @@
+module qlab.osc.workspace
+
+import "osc.pkl"
+
+class WorkspaceMessage extends osc.Message {
+  useWorkspacePrefix = true
+}
+
+`/workspace/{id}/alwaysAudition {boolean}`: WorkspaceMessage = new {
+  address = "/workspace/{id}/alwaysAudition"
+  args = new {
+    true // boolean
+  }
+  permissions = new {
+    view    = "read"
+    edit    = "read_write"
+    control = "read"
+    query   = "yes"
+  }
+}
+
+`/workspace/{id}/connect {passcode_string}`: WorkspaceMessage = new {
+  address = "/workspace/{id}/connect"
+  args = new {
+    // passcode_string
+  }
+  permissions = new {
+    view    = "yes"
+    edit    = "yes"
+    control = "yes"
+    query   = "no"
+  }
+}
+
+`/workspace/{id}/cueLists`: WorkspaceMessage = new {
+  address = "/workspace/{id}/cueLists"
+  permissions = new {
+    view    = "read_only"
+    edit    = "read_only"
+    control = "read_only"
+    query   = "no"
+  }
+  example = """
+    -- Cue schema
+    [
+        {
+            "uniqueID": string,
+            "number": string
+            "name": string
+            "listName": string
+            "type": string
+            "colorName": string
+            "colorName/live": string
+            "flagged": number
+            "armed": number
+        }
+    ]
+    --- Group cues
+    [
+        {
+            "number": "{string}",
+            "uniqueID": {string},
+            "cues": [ {a cue dictionary}, {another dictionary}, {and another} ],
+            "flagged": true|false,
+            "listName": "{string}",
+            "type": "{string}",
+            "colorName": "{string}",
+            "colorName/live": "{string}",
+            "name": "{string}",
+            "armed": true|false,
+        }
+    ]
+  """
+}
+
+`/workspace/{id}/selectedCues` = (`/workspace/{id}/cueLists`) {
+  address = "/workspace/{id}/selectedCues"
+}
+
+`/workspace/{id}/runningCues` = (`/workspace/{id}/cueLists`) {
+  address = "/workspace/{id}/runningCues"
+}
+
+`/workspace/{id}/runningOrPausedCues` = (`/workspace/{id}/cueLists`) {
+  address = "/workspace/{id}/runningOrPausedCues"
+}
+
