@@ -407,6 +407,70 @@ func (q *Workspace) createCue(cueData map[string]any, cueNumber string) (string,
 				return "", fmt.Errorf("failed to set group mode: %v", err)
 			}
 		}
+	case "fade":
+		// Set fade cue target
+		if targetNumber, ok := cueData["cueTargetNumber"].(string); ok && targetNumber != "" {
+			if err := q.setCueProperty(uniqueID, "cueTargetNumber", targetNumber); err != nil {
+				log.Warnf("Failed to set cueTargetNumber %s, trying cueTargetID fallback: %v", targetNumber, err)
+				// Fallback to cueTargetID if we have it
+				if targetID, ok := cueData["cueTargetID"].(string); ok && targetID != "" {
+					if err := q.setCueProperty(uniqueID, "cueTargetID", targetID); err != nil {
+						return "", fmt.Errorf("failed to set cue target: %v", err)
+					}
+				}
+			}
+		} else if targetID, ok := cueData["cueTargetID"].(string); ok && targetID != "" {
+			// Only cueTargetID is available
+			if err := q.setCueProperty(uniqueID, "cueTargetID", targetID); err != nil {
+				return "", fmt.Errorf("failed to set cue target: %v", err)
+			}
+		}
+		// Set fade geometry parameter enables
+		if doOpacity, ok := cueData["doOpacity"].(bool); ok && doOpacity {
+			if err := q.setCueProperty(uniqueID, "doOpacity", "1"); err != nil {
+				log.Warnf("Failed to set doOpacity for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doTranslation, ok := cueData["doTranslation"].(bool); ok && doTranslation {
+			if err := q.setCueProperty(uniqueID, "doTranslation", "1"); err != nil {
+				log.Warnf("Failed to set doTranslation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doScale, ok := cueData["doScale"].(bool); ok && doScale {
+			if err := q.setCueProperty(uniqueID, "doScale", "1"); err != nil {
+				log.Warnf("Failed to set doScale for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doRotation, ok := cueData["doRotation"].(bool); ok && doRotation {
+			if err := q.setCueProperty(uniqueID, "doRotation", "1"); err != nil {
+				log.Warnf("Failed to set doRotation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		// Set geometry properties for fade cues
+		if opacity, ok := cueData["opacity"].(float64); ok && opacity > 0 {
+			if err := q.setCueProperty(uniqueID, "opacity", fmt.Sprintf("%g", opacity)); err != nil {
+				log.Warnf("Failed to set opacity for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if translation, ok := cueData["translation"].([]any); ok && len(translation) == 2 {
+			x, _ := translation[0].(float64)
+			y, _ := translation[1].(float64)
+			if err := q.setCuePropertyWithArgs(uniqueID, "translation", float32(x), float32(y)); err != nil {
+				log.Warnf("Failed to set translation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if scale, ok := cueData["scale"].([]any); ok && len(scale) == 2 {
+			x, _ := scale[0].(float64)
+			y, _ := scale[1].(float64)
+			if err := q.setCuePropertyWithArgs(uniqueID, "scale", float32(x), float32(y)); err != nil {
+				log.Warnf("Failed to set scale for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if rotation, ok := cueData["rotation"].(float64); ok && rotation != 0 {
+			if err := q.setCueProperty(uniqueID, "rotation", fmt.Sprintf("%g", rotation)); err != nil {
+				log.Warnf("Failed to set rotation for fade cue %s: %v", uniqueID, err)
+			}
+		}
 	case "list", "cart":
 		// List and Cart cues have read-only mode properties, skip mode setting
 	case "start", "stop":
@@ -649,6 +713,53 @@ func (q *Workspace) createCueWithoutTarget(cueData map[string]any, cueNumber str
 				return "", fmt.Errorf("failed to set group mode: %v", err)
 			}
 		}
+	case "fade":
+		// Set fade geometry parameter enables
+		if doOpacity, ok := cueData["doOpacity"].(bool); ok && doOpacity {
+			if err := q.setCueProperty(uniqueID, "doOpacity", "1"); err != nil {
+				log.Warnf("Failed to set doOpacity for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doTranslation, ok := cueData["doTranslation"].(bool); ok && doTranslation {
+			if err := q.setCueProperty(uniqueID, "doTranslation", "1"); err != nil {
+				log.Warnf("Failed to set doTranslation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doScale, ok := cueData["doScale"].(bool); ok && doScale {
+			if err := q.setCueProperty(uniqueID, "doScale", "1"); err != nil {
+				log.Warnf("Failed to set doScale for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doRotation, ok := cueData["doRotation"].(bool); ok && doRotation {
+			if err := q.setCueProperty(uniqueID, "doRotation", "1"); err != nil {
+				log.Warnf("Failed to set doRotation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		// Set geometry properties for fade cues
+		if opacity, ok := cueData["opacity"].(float64); ok && opacity > 0 {
+			if err := q.setCueProperty(uniqueID, "opacity", fmt.Sprintf("%g", opacity)); err != nil {
+				log.Warnf("Failed to set opacity for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if translation, ok := cueData["translation"].([]any); ok && len(translation) == 2 {
+			x, _ := translation[0].(float64)
+			y, _ := translation[1].(float64)
+			if err := q.setCuePropertyWithArgs(uniqueID, "translation", float32(x), float32(y)); err != nil {
+				log.Warnf("Failed to set translation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if scale, ok := cueData["scale"].([]any); ok && len(scale) == 2 {
+			x, _ := scale[0].(float64)
+			y, _ := scale[1].(float64)
+			if err := q.setCuePropertyWithArgs(uniqueID, "scale", float32(x), float32(y)); err != nil {
+				log.Warnf("Failed to set scale for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if rotation, ok := cueData["rotation"].(float64); ok && rotation != 0 {
+			if err := q.setCueProperty(uniqueID, "rotation", fmt.Sprintf("%g", rotation)); err != nil {
+				log.Warnf("Failed to set rotation for fade cue %s: %v", uniqueID, err)
+			}
+		}
 	case "list", "cart":
 		// List and Cart cues have read-only mode properties, skip mode setting
 	case "start", "stop":
@@ -759,6 +870,53 @@ func (q *Workspace) updateCueProperties(uniqueID string, cueData map[string]any)
 		if mode, ok := cueData["mode"].(float64); ok {
 			if err := q.setCueProperty(uniqueID, "mode", fmt.Sprintf("%.0f", mode)); err != nil {
 				return fmt.Errorf("failed to update group mode: %v", err)
+			}
+		}
+	case "fade":
+		// Set fade geometry parameter enables
+		if doOpacity, ok := cueData["doOpacity"].(bool); ok && doOpacity {
+			if err := q.setCueProperty(uniqueID, "doOpacity", "1"); err != nil {
+				log.Warnf("Failed to set doOpacity for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doTranslation, ok := cueData["doTranslation"].(bool); ok && doTranslation {
+			if err := q.setCueProperty(uniqueID, "doTranslation", "1"); err != nil {
+				log.Warnf("Failed to set doTranslation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doScale, ok := cueData["doScale"].(bool); ok && doScale {
+			if err := q.setCueProperty(uniqueID, "doScale", "1"); err != nil {
+				log.Warnf("Failed to set doScale for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		if doRotation, ok := cueData["doRotation"].(bool); ok && doRotation {
+			if err := q.setCueProperty(uniqueID, "doRotation", "1"); err != nil {
+				log.Warnf("Failed to set doRotation for fade cue %s: %v", uniqueID, err)
+			}
+		}
+		// Set geometry properties for fade cues
+		if opacity, ok := cueData["opacity"].(float64); ok && opacity > 0 {
+			if err := q.setCueProperty(uniqueID, "opacity", fmt.Sprintf("%g", opacity)); err != nil {
+				return fmt.Errorf("failed to update opacity: %v", err)
+			}
+		}
+		if translation, ok := cueData["translation"].([]any); ok && len(translation) == 2 {
+			x, _ := translation[0].(float64)
+			y, _ := translation[1].(float64)
+			if err := q.setCuePropertyWithArgs(uniqueID, "translation", float32(x), float32(y)); err != nil {
+				return fmt.Errorf("failed to update translation: %v", err)
+			}
+		}
+		if scale, ok := cueData["scale"].([]any); ok && len(scale) == 2 {
+			x, _ := scale[0].(float64)
+			y, _ := scale[1].(float64)
+			if err := q.setCuePropertyWithArgs(uniqueID, "scale", float32(x), float32(y)); err != nil {
+				return fmt.Errorf("failed to update scale: %v", err)
+			}
+		}
+		if rotation, ok := cueData["rotation"].(float64); ok && rotation != 0 {
+			if err := q.setCueProperty(uniqueID, "rotation", fmt.Sprintf("%g", rotation)); err != nil {
+				return fmt.Errorf("failed to update rotation: %v", err)
 			}
 		}
 	case "list", "cart":
