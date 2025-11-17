@@ -70,15 +70,15 @@ func writeCue(builder *strings.Builder, c Cue, indent int) {
 
 	// Text formatting colors (optional)
 	if len(c.TextColor) == 4 {
-		fmt.Fprintf(builder, "%s\t\"text/format/color\": [%g, %g, %g, %g]\n",
+		fmt.Fprintf(builder, "%s\t\"text/format/color\": [%.1f, %.1f, %.1f, %.1f]\n",
 			indentStr, c.TextColor[0], c.TextColor[1], c.TextColor[2], c.TextColor[3])
 	}
 	if len(c.TextBgColor) == 4 {
-		fmt.Fprintf(builder, "%s\t\"text/format/backgroundColor\": [%g, %g, %g, %g]\n",
+		fmt.Fprintf(builder, "%s\t\"text/format/backgroundColor\": [%.1f, %.1f, %.1f, %.1f]\n",
 			indentStr, c.TextBgColor[0], c.TextBgColor[1], c.TextBgColor[2], c.TextBgColor[3])
 	}
 	if c.TextFontSize > 0 {
-		fmt.Fprintf(builder, "%s\t\"text/format/fontSize\": %g\n", indentStr, c.TextFontSize)
+		fmt.Fprintf(builder, "%s\t\"text/format/fontSize\": %.1f\n", indentStr, c.TextFontSize)
 	}
 	if c.TextAlignment != "" {
 		fmt.Fprintf(builder, "%s\t\"text/format/alignment\": %q\n", indentStr, c.TextAlignment)
@@ -92,11 +92,11 @@ func writeCue(builder *strings.Builder, c Cue, indent int) {
 		fmt.Fprintf(builder, "%s\tstageID: %q\n", indentStr, c.StageID)
 	}
 	if len(c.Translation) == 2 {
-		fmt.Fprintf(builder, "%s\ttranslation: [%g, %g]\n",
+		fmt.Fprintf(builder, "%s\ttranslation: [%.1f, %.1f]\n",
 			indentStr, c.Translation[0], c.Translation[1])
 	}
 	if c.Opacity > 0 && c.Opacity <= 1.0 {
-		fmt.Fprintf(builder, "%s\topacity: %g\n", indentStr, c.Opacity)
+		fmt.Fprintf(builder, "%s\topacity: %.1f\n", indentStr, c.Opacity)
 	}
 
 	// FileTarget (optional, defaults to "")
@@ -132,6 +132,20 @@ func writeCue(builder *strings.Builder, c Cue, indent int) {
 	// CueTargetNumber (optional)
 	if c.CueTargetNumber != "" {
 		fmt.Fprintf(builder, "%s\tcueTargetNumber: %q\n", indentStr, c.CueTargetNumber)
+	}
+
+	// Geometry parameter enables (for fade cues)
+	if c.DoOpacity {
+		fmt.Fprintf(builder, "%s\tdoOpacity: true\n", indentStr)
+	}
+	if c.DoTranslation {
+		fmt.Fprintf(builder, "%s\tdoTranslation: true\n", indentStr)
+	}
+	if c.DoScale {
+		fmt.Fprintf(builder, "%s\tdoScale: true\n", indentStr)
+	}
+	if c.DoRotation {
+		fmt.Fprintf(builder, "%s\tdoRotation: true\n", indentStr)
 	}
 
 	// Write nested cues if present

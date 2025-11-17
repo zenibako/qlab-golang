@@ -54,10 +54,10 @@ package schemas
 	// Audio-specific properties
 	infiniteLoop?:      bool | *false
 	playCount?:         int | *0
-	rate?:              float | *1.0
+	rate?:              number | *1.0
 	"startTime"?:       string
 	"endTime"?:         string
-	level?:             float
+	level?:             number
 	gang?:              bool
 	...
 }
@@ -70,15 +70,15 @@ package schemas
 	// Video-specific properties
 	infiniteLoop?:      bool | *false
 	playCount?:         int | *0
-	rate?:              float | *1.0
+	rate?:              number | *1.0
 	"startTime"?:       string
 	"endTime"?:         string
 	layer?:             int
 	fullScreen?:        bool
-	translation?:       [float, float] // [x, y]
-	scale?:             [float, float] // [x, y]
-	rotation?:          float
-	opacity?:           float | *1.0
+	translation?:       [number, number] // [x, y]
+	scale?:             [number, number] // [x, y]
+	rotation?:          number
+	opacity?:           number | *1.0
 	...
 }
 
@@ -91,17 +91,17 @@ package schemas
 	text: string | *""
 	
 	// Text formatting - use OSC address format with quotes
-	"text/format/color"?:           [float, float, float, float] | *[1, 1, 1, 1] // [R, G, B, A] 0.0-1.0
-	"text/format/backgroundColor"?: [float, float, float, float] | *[0, 0, 0, 0] // [R, G, B, A] 0.0-1.0
-	"text/format/fontSize"?:        float | *72
+	"text/format/color"?:           [number, number, number, number] | *[1, 1, 1, 1] // [R, G, B, A] 0.0-1.0
+	"text/format/backgroundColor"?: [number, number, number, number] | *[0, 0, 0, 0] // [R, G, B, A] 0.0-1.0
+	"text/format/fontSize"?:        number | *72
 	"text/format/alignment"?:       string | *"center" // "left", "center", "right"
 	"text/format/font"?:            string
 	
 	// Text geometry
-	translation?: [float, float] // [x, y]
-	scale?:       [float, float] // [x, y]
-	rotation?:    float
-	opacity?:     float | *1.0
+	translation?: [number, number] // [x, y]
+	scale?:       [number, number] // [x, y]
+	rotation?:    number
+	opacity?:     number | *1.0
 	
 	// Stage assignment
 	stageName?: string
@@ -138,13 +138,13 @@ package schemas
 	doColor?:        bool | *false // Text color
 	
 	// Fade target values
-	opacity?:                       float
-	translation?:                   [float, float]
-	scale?:                         [float, float]
-	rotation?:                      float
-	level?:                         float
-	"text/format/color"?:           [float, float, float, float]
-	"text/format/backgroundColor"?: [float, float, float, float]
+	opacity?:                       number
+	translation?:                   [number, number]
+	scale?:                         [number, number]
+	rotation?:                      number
+	level?:                         number
+	"text/format/color"?:           [number, number, number, number]
+	"text/format/backgroundColor"?: [number, number, number, number]
 	
 	// Fade curve
 	curve?: string | *"linear" // "linear", "exponential", "logarithmic", "s-curve"
