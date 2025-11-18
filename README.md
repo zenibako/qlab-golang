@@ -11,7 +11,7 @@ A Go library for controlling [QLab](https://qlab.app/) via OSC (Open Sound Contr
 - Template-based cue generation with hierarchy support
 - Conflict detection and resolution for concurrent updates
 - Mock OSC server for testing
-- Type-safe message definitions with CUE/Pkl schemas
+- Type-safe message definitions with CUE schemas
 - Automatic retry and timeout handling
 
 ## Installation
@@ -22,7 +22,7 @@ go get github.com/zenibako/qlab-golang/messages  # Optional: OSC protocol defini
 go get github.com/zenibako/qlab-golang/templates # Optional: Template-based cue generation
 ```
 
-The `schemas/` directory contains CUE and Pkl type definitions for validation and documentation purposes. These are not Go packages but provide schema definitions for QLab's OSC API.
+The `schemas/` directory contains CUE type definitions for validation and documentation purposes. These are not Go packages but provide schema definitions for QLab's OSC API.
 
 ## Quick Start
 
@@ -200,8 +200,7 @@ qlab-golang/
 │       ├── application.cue # Application-level OSC messages
 │       ├── cue.cue         # Cue-level OSC messages and parameters
 │       ├── workspace.cue   # Workspace-level OSC messages
-│       ├── osc.cue         # Base OSC protocol definitions
-│       └── *.pkl           # Apple Pkl schema files
+│       └── osc.cue         # Base OSC protocol definitions
 ├── integration/            # Integration tests
 │   └── real_qlab_test.go   # Tests requiring actual QLab instance
 ├── go.mod
