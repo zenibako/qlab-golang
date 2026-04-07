@@ -10,7 +10,7 @@ type CueTemplate struct {
 
 // CueGenerationRequest represents a request to generate cues
 type CueGenerationRequest struct {
-	AnchorID  string      `json:"anchor_id"`
+	AnnotationID  string      `json:"annotation_id"`
 	CueNumber string      `json:"cue_number"`
 	Template  CueTemplate `json:"template"`
 	ParentID  string      `json:"parent_id,omitempty"` // Optional: where to insert in hierarchy
