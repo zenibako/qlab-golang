@@ -9,31 +9,166 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/log"
 	"github.com/zenibako/qlab-golang/messages"
-	"github.com/zenibako/qlab-golang/threeway"
 )
 
-// compareCacheWithCurrentState compares cached workspace with current QLab state.
-// Delegates to the destination-agnostic threeway package (TASK-261).
+// compareCacheWithCurrentState compares cached workspace with current QLab state
 func (q *Workspace) compareCacheWithCurrentState(cachedWorkspace, currentWorkspace map[string]any) bool {
-	return threeway.CompareCacheWithCurrentState(cachedWorkspace, currentWorkspace)
+	// For a basic comparison, we'll check if the structure and main properties match
+	// A more sophisticated comparison could check individual cue properties
+
+	cachedCues := q.indexCuesFromWorkspace(cachedWorkspace)
+	currentCues := q.indexCuesFromWorkspace(currentWorkspace)
+
+	// Check if the number of cues matches
+	if len(cachedCues) != len(currentCues) {
+		return false
+	}
+
+	// Check if each cached cue matches the current one
+	for cueNumber, cachedCue := range cachedCues {
+		currentCue, exists := currentCues[cueNumber]
+		if !exists {
+			return false
+		}
+
+		if !q.compareCueProperties(cachedCue, currentCue) {
+			return false
+		}
+	}
+
+	return true
 }
 
-// compareCuePropertiesDetailed compares properties and returns detailed differences.
-// Delegates to the destination-agnostic threeway package (TASK-261).
-func (q *Workspace) compareCuePropertiesDetailed(cue1, cue2 map[string]any) map[string]string {
-	return threeway.CompareCuePropertiesDetailed(cue1, cue2)
-}
-
-// compareCueProperties compares the important properties of two cues.
-// Delegates to the destination-agnostic threeway package (TASK-261).
+// compareCueProperties compares the important properties of two cues
 func (q *Workspace) compareCueProperties(cue1, cue2 map[string]any) bool {
-	return threeway.CompareCueProperties(cue1, cue2)
+	differences := q.compareCuePropertiesDetailed(cue1, cue2)
+	return len(differences) == 0
 }
 
-// identifyConflictsFromScope recursively identifies conflicts from scope comparison.
-// Delegates to the destination-agnostic threeway package (TASK-261).
-func (q *Workspace) identifyConflictsFromScope(scope *ScopeComparison) []CueConflict {
-	return threeway.IdentifyConflictsFromScope(scope)
+// compareCuePropertiesDetailed compares properties and returns detailed differences
+func (q *Workspace) compareCuePropertiesDetailed(cue1, cue2 map[string]any) map[string]string {
+	// List of all properties we might want to compare
+	allProperties := []string{
+		"name", "type", "fileTarget", "duration", "cueTargetNumber",
+		"armed", "colorName", "flagged", "notes",
+	}
+
+	differences := make(map[string]string)
+
+	for _, prop := range allProperties {
+		// Only compare properties that exist in both cues or where one has a meaningful value
+		val1 := q.normalizeProperty(cue1[prop])
+		val2 := q.normalizeProperty(cue2[prop])
+
+		// Skip comparison if both values are empty/missing
+		if val1 == "" && val2 == "" {
+			continue
+		}
+
+		// For properties that may not exist in QLab data (like fileTarget, cueTargetNumber),
+		// only compare if BOTH cues have the property defined
+		if prop == "fileTarget" || prop == "cueTargetNumber" {
+			// Check if both cues actually have this property key
+			_, has1 := cue1[prop]
+			_, has2 := cue2[prop]
+
+			// Only compare if BOTH cues have this property
+			// If one cue lacks the property entirely, skip comparison to avoid false positives
+			if !has1 || !has2 {
+				continue
+			}
+		}
+
+		// Apply smart comparison for properties that might have default value differences
+		if !q.comparePropertyValues(prop, val1, val2) {
+			differences[prop] = fmt.Sprintf("'%s' -> '%s'", val1, val2)
+		}
+	}
+
+	return differences
+}
+
+// comparePropertyValues applies smart comparison logic for specific properties
+func (q *Workspace) comparePropertyValues(property, val1, val2 string) bool {
+	if val1 == val2 {
+		return true
+	}
+
+	// Handle boolean properties: treat "false", "" and "true" as equivalent for armed/flagged
+	// These are operational states, not content that should trigger updates
+	if property == "armed" || property == "flagged" {
+		// All boolean states should be considered equivalent for cue matching
+		// Armed/flagged states are user-controlled and shouldn't prevent cue recognition
+		return true
+	}
+
+	// Handle numeric properties: treat "0" and "" as equivalent (both are zero values)
+	if property == "duration" {
+		if (val1 == "0" && val2 == "") || (val1 == "" && val2 == "0") {
+			return true
+		}
+	}
+
+	// Handle type property: QLab capitalizes cue types
+	if property == "type" {
+		// Normalize both values to lowercase for comparison
+		if strings.EqualFold(val1, val2) {
+			return true
+		}
+	}
+
+	// Handle fileTarget property: compare basename only since paths may differ
+	if property == "fileTarget" {
+		// If both have values, compare the basename (filename)
+		if val1 != "" && val2 != "" {
+			base1 := filepath.Base(val1)
+			base2 := filepath.Base(val2)
+			return base1 == base2
+		}
+		// If one is empty and the other isn't, they're different
+		return false
+	}
+
+	// Handle colorName: treat "" and "none" as equivalent (both mean no color)
+	if property == "colorName" {
+		if (val1 == "" && val2 == "none") || (val1 == "none" && val2 == "") {
+			return true
+		}
+	}
+
+	// Handle cueTargetNumber: treat "" and actual values as different unless both empty
+	if property == "cueTargetNumber" {
+		// Only consider equal if both are empty or both have the same value
+		if val1 == "" && val2 == "" {
+			return true
+		}
+		// If one is empty and other isn't, they're different
+		return val1 == val2
+	}
+
+	return false
+}
+
+// normalizeProperty normalizes a property value for comparison
+func (q *Workspace) normalizeProperty(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	switch v := value.(type) {
+	case string:
+		return v
+	case float64:
+		return fmt.Sprintf("%g", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	case bool:
+		return fmt.Sprintf("%t", v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // processCueList recursively processes cues and their sub-cues
@@ -1555,10 +1690,155 @@ func (q *Workspace) findCuejitsuInbox() (string, error) {
 	return "", nil
 }
 
-// IdentifyConflicts analyzes the three-way comparison to find conflicts that need user resolution.
-// Delegates to the destination-agnostic threeway package (TASK-261).
+// IdentifyConflicts analyzes the three-way comparison to find conflicts that need user resolution
+// Enhanced version with scope-based and field-level conflict detection
 func (q *Workspace) IdentifyConflicts(comparison *ThreeWayComparison) ([]CueConflict, error) {
-	return threeway.IdentifyConflicts(comparison)
+	var conflicts []CueConflict
+
+	// Handle case where QLab query failed
+	if !comparison.HasQLabData {
+		if comparison.HasCache {
+			log.Warn("QLab data unavailable - using cache-only comparison")
+			log.Info("Conflicts cannot be detected without current QLab state")
+			log.Info("Recommendation: Increase timeout or check QLab connection")
+		}
+		return conflicts, nil
+	}
+
+	// Only identify conflicts if we have cache (need common ancestor)
+	if !comparison.HasCache {
+		log.Debug("No cache available - three-way conflict detection unavailable")
+		return conflicts, nil
+	}
+
+	// If cache matches QLab, then only simple source vs cache conflicts are possible
+	// These are typically handled automatically, so we don't need user input
+	if comparison.CacheMatchesQLab {
+		log.Debug("Cache matches QLab state, no complex conflicts detected")
+		return conflicts, nil
+	}
+
+	// Use scope-based conflict identification if available
+	if comparison.WorkspaceScope != nil {
+		return q.identifyConflictsFromScope(comparison.WorkspaceScope), nil
+	}
+
+	// Fallback to legacy cue-level conflict detection
+	for cueNumber, result := range comparison.CueResults {
+		if result == nil {
+			continue
+		}
+
+		// Look for cases where manual intervention might be needed
+		// This occurs when QLab was modified externally or when both source and QLab differ
+		if result.Action == "update" && (strings.Contains(result.Reason, "QLab modified externally") || strings.Contains(result.Reason, "both source and QLab modified")) {
+			var conflictType ConflictType
+			var description string
+
+			if strings.Contains(result.Reason, "QLab modified externally") {
+				conflictType = ConflictCacheStale
+				description = fmt.Sprintf("Cue %s has been modified in QLab since last sync", cueNumber)
+			} else {
+				conflictType = ConflictThreeWayDivergence
+				description = fmt.Sprintf("Cue %s has been modified in both the source file and QLab since last sync", cueNumber)
+			}
+
+			conflict := CueConflict{
+				CueNumber:      cueNumber,
+				CueIdentifier:  cueNumber,
+				ConflictType:   conflictType,
+				Scope:          ScopeCue,
+				Description:    description,
+				FieldConflicts: result.FieldConflicts,
+				Resolved:       false,
+			}
+			conflicts = append(conflicts, conflict)
+			log.Debug("Identified conflict for cue", "cue_number", cueNumber, "type", conflictType)
+		}
+	}
+
+	return conflicts, nil
+}
+
+// identifyConflictsFromScope recursively identifies conflicts from scope comparison
+func (q *Workspace) identifyConflictsFromScope(scope *ScopeComparison) []CueConflict {
+	var conflicts []CueConflict
+
+	if scope == nil {
+		return conflicts
+	}
+
+	// Check if this scope has conflicts
+	if scope.ConflictExists {
+		// Build list of conflicting properties
+		properties := make([]string, 0, len(scope.FieldChanges))
+		fieldConflicts := make(map[string]*FieldConflict)
+
+		for fieldName, fieldConflict := range scope.FieldChanges {
+			if q.isFieldConflict(fieldConflict) {
+				properties = append(properties, fieldName)
+				fieldConflicts[fieldName] = fieldConflict
+			}
+		}
+
+		if len(properties) > 0 {
+			var conflictType ConflictType
+			var description string
+
+			// Determine conflict type based on field changes
+			hasSourceChanges := false
+			hasQLabChanges := false
+
+			for _, fc := range fieldConflicts {
+				sourceNorm := q.normalizeProperty(fc.SourceValue)
+				cacheNorm := q.normalizeProperty(fc.CacheValue)
+				qlabNorm := q.normalizeProperty(fc.QLabValue)
+
+				if !q.comparePropertyValues(fc.FieldName, sourceNorm, cacheNorm) {
+					hasSourceChanges = true
+				}
+				if !q.comparePropertyValues(fc.FieldName, qlabNorm, cacheNorm) {
+					hasQLabChanges = true
+				}
+			}
+
+			if hasSourceChanges && hasQLabChanges {
+				conflictType = ConflictThreeWayDivergence
+				description = fmt.Sprintf("%s '%s' has conflicting changes in source and QLab (fields: %v)",
+					scope.Scope, scope.Identifier, properties)
+			} else if hasQLabChanges {
+				conflictType = ConflictCacheStale
+				description = fmt.Sprintf("%s '%s' modified in QLab (fields: %v)",
+					scope.Scope, scope.Identifier, properties)
+			} else if hasSourceChanges {
+				conflictType = ConflictSourceModified
+				description = fmt.Sprintf("%s '%s' modified in source (fields: %v)",
+					scope.Scope, scope.Identifier, properties)
+			}
+
+			conflict := CueConflict{
+				CueNumber:      scope.Identifier,
+				CueIdentifier:  scope.Identifier,
+				ConflictType:   conflictType,
+				Scope:          scope.Scope,
+				Properties:     properties,
+				FieldConflicts: fieldConflicts,
+				Description:    description,
+				Resolved:       false,
+			}
+
+			conflicts = append(conflicts, conflict)
+			log.Debugf("Identified %s-level conflict: %s (%d fields)", scope.Scope, scope.Identifier, len(properties))
+		}
+	}
+
+	// Recursively check child scopes
+	for _, childScope := range scope.ChildScopes {
+		childConflicts := q.identifyConflictsFromScope(childScope)
+		conflicts = append(conflicts, childConflicts...)
+	}
+
+	return conflicts
 }
 
 // PromptUserForConflictResolution uses huh to prompt the user for conflict resolution choices
