@@ -1,6 +1,10 @@
 package qlab
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TestApplyCueChanges_DryRun exercises all three change actions through the
 // dry-run path (writes are mocked), so it needs no live OSC server.
@@ -24,6 +28,80 @@ func TestApplyCueChanges_DryRun(t *testing.T) {
 	}
 	if applied != 3 {
 		t.Errorf("applied = %d, want 3", applied)
+	}
+}
+
+// TestApplyCueChanges_ParentPlacement exercises non-recursive create plus
+// placing a child under a parent created earlier in the same batch (the child's
+// ParentNumber resolves to the parent's freshly created uniqueID). Writes are
+// mocked via dry-run.
+func TestApplyCueChanges_ParentPlacement(t *testing.T) {
+	w := NewTestWorkspace("localhost", 53535, "test-ws")
+	w.SetDryRun(true)
+
+	changes := []CueChange{
+		{Action: CueCreate, Number: "1", Cue: Cue{Number: "1", Type: "group", Name: "G"}},
+		{Action: CueCreate, Number: "1.1", ParentNumber: "1", Cue: Cue{Number: "1.1", Type: "audio", Name: "child"}},
+	}
+
+	applied, err := w.ApplyCueChanges(changes)
+	if err != nil {
+		t.Fatalf("ApplyCueChanges: %v", err)
+	}
+	if applied != 2 {
+		t.Errorf("applied = %d, want 2 (parent + nested child)", applied)
+	}
+}
+
+// TestSaveLoadCacheRoundTrip verifies the merge-base snapshot survives a
+// save/load cycle. It writes under the real per-user cache dir (matching the
+// legacy convention) with a unique base name and cleans up after.
+func TestSaveLoadCacheRoundTrip(t *testing.T) {
+	w := NewTestWorkspace("localhost", 53535, "test-ws")
+
+	cueFile := filepath.Join(t.TempDir(), "roundtrip-"+t.Name()+".cue")
+	t.Cleanup(func() {
+		if dir, base, err := cacheDirForCueFile(cueFile); err == nil {
+			matches, _ := filepath.Glob(filepath.Join(dir, base+"_*.json"))
+			for _, m := range matches {
+				_ = os.Remove(m)
+			}
+		}
+	})
+
+	want := map[string]any{
+		"cues": []any{
+			map[string]any{"number": "1.0", "uniqueID": "U1", "name": "A"},
+		},
+	}
+	if err := w.SaveCache(cueFile, want); err != nil {
+		t.Fatalf("SaveCache: %v", err)
+	}
+
+	got, err := w.LoadCache(cueFile)
+	if err != nil {
+		t.Fatalf("LoadCache: %v", err)
+	}
+	cues, ok := got["cues"].([]any)
+	if !ok || len(cues) != 1 {
+		t.Fatalf("LoadCache round-trip: expected 1 cue, got %#v", got)
+	}
+	cue, _ := cues[0].(map[string]any)
+	if cue["uniqueID"] != "U1" || cue["number"] != "1.0" {
+		t.Errorf("round-trip mismatch: %#v", cue)
+	}
+}
+
+// TestLoadCacheMissing returns (nil, nil) when no snapshot exists yet.
+func TestLoadCacheMissing(t *testing.T) {
+	w := NewTestWorkspace("localhost", 53535, "test-ws")
+	cueFile := filepath.Join(t.TempDir(), "never-saved-"+t.Name()+".cue")
+	got, err := w.LoadCache(cueFile)
+	if err != nil {
+		t.Fatalf("LoadCache: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil cache for a file with no snapshot, got %#v", got)
 	}
 }
 
