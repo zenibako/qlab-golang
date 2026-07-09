@@ -707,10 +707,10 @@ func TestDecimalPreservation(t *testing.T) {
 				"number": tc.inputNumber,
 			}
 
-			// Test the processCueListWithParent function (which uses our fixed logic)
-			_, err := workspace.processCueListWithParent(cueData, "", "")
+			// Test the createCue function (which uses the same number formatting logic)
+			_, err := workspace.createCue(cueData, fmt.Sprintf("%v", tc.inputNumber))
 			if err != nil {
-				t.Fatalf("processCueListWithParent failed for %s: %v", tc.name, err)
+				t.Fatalf("createCue failed for %s: %v", tc.name, err)
 			}
 
 			// Also test direct indexing logic
