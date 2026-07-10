@@ -3,19 +3,14 @@ package qlab
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 // sync_api.go is the pure-data boundary of the QLab client (TASK-273). The
 // three-way diff/conflict/merge orchestration lives in the CLI (cli/cuesync +
-// cli/qlabsync); this file exposes just the transport and cache halves that
-// orchestration needs: read the current workspace, load/save the merge-base
-// cache, and apply a resolved list of changes over OSC. It adds no comparison
-// logic.
+// cli/qlabsync); this file exposes just the transport halves that
+// orchestration needs: read the current workspace and apply a resolved list
+// of changes over OSC. It adds no comparison logic. The merge-base snapshot
+// lives with the orchestrator (cli/snapshot, TASK-276), not in this library.
 //
 // Per doc-21 §2/§5.4: CueChange carries qlab.Cue (the vendor type), NOT
 // map[string]any or the IR. The library speaks only its own vocabulary; the
@@ -155,83 +150,4 @@ func (q *Workspace) ApplyCueChanges(changes []CueChange) (int, error) {
 		applied++
 	}
 	return applied, nil
-}
-
-// cacheDirForCueFile returns the per-user cache directory and the base name used
-// for a CUE file's snapshot files (~/.cache/cuejitsu/<base>_<timestamp>.json).
-func cacheDirForCueFile(cueFilePath string) (dir, baseName string, err error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", "", fmt.Errorf("get current user: %w", err)
-	}
-	dir = filepath.Join(usr.HomeDir, ".cache", "cuejitsu")
-	baseName = strings.TrimSuffix(filepath.Base(cueFilePath), filepath.Ext(cueFilePath))
-	return dir, baseName, nil
-}
-
-// LoadCache returns the most recent cached workspace snapshot for a CUE file, or
-// (nil, nil) when none exists. It is the merge base (the "what we last believed
-// the device held" state) the three-way engine compares against; a nil result
-// means "no base" and the engine degrades to a two-way compare.
-func (q *Workspace) LoadCache(cueFilePath string) (map[string]any, error) {
-	dir, baseName, err := cacheDirForCueFile(cueFilePath)
-	if err != nil {
-		return nil, err
-	}
-	matches, err := filepath.Glob(filepath.Join(dir, baseName+"_*.json"))
-	if err != nil {
-		return nil, fmt.Errorf("search cache files: %w", err)
-	}
-
-	var newestFile string
-	var newestTime time.Time
-	for _, match := range matches {
-		info, err := os.Stat(match)
-		if err != nil {
-			continue
-		}
-		if info.ModTime().After(newestTime) {
-			newestTime = info.ModTime()
-			newestFile = match
-		}
-	}
-	if newestFile == "" {
-		return nil, nil
-	}
-
-	data, err := os.ReadFile(newestFile)
-	if err != nil {
-		return nil, fmt.Errorf("read cache file: %w", err)
-	}
-	var workspace map[string]any
-	if err := json.Unmarshal(data, &workspace); err != nil {
-		return nil, fmt.Errorf("decode cache file: %w", err)
-	}
-	return workspace, nil
-}
-
-// SaveCache writes workspace as the new merge-base snapshot for a CUE file. The
-// orchestrator calls this after a successful apply with the state it just
-// converged the device toward, so the next sync has an accurate base. This is
-// the pure write half — it stores exactly what it is given, with no QLab query
-// or skip-preservation (that coupling to the legacy comparison is gone).
-func (q *Workspace) SaveCache(cueFilePath string, workspace map[string]any) error {
-	dir, baseName, err := cacheDirForCueFile(cueFilePath)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("create cache directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(workspace, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode workspace: %w", err)
-	}
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	cacheFilePath := filepath.Join(dir, fmt.Sprintf("%s_%s.json", baseName, timestamp))
-	if err := os.WriteFile(cacheFilePath, data, 0644); err != nil {
-		return fmt.Errorf("write cache file: %w", err)
-	}
-	return nil
 }
